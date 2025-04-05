@@ -36,12 +36,54 @@ const GameView: React.FC = () => {
     }
   }, [debugMode]);
 
-  // Handle keyboard events for debug toggle
+  // Handle keyboard events for debug toggle and controls
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      
+      // Tab key toggles debug mode
       if (event.key === 'Tab') {
         event.preventDefault(); // Prevent focus change
         setDebugMode(prev => !prev);
+        return;
+      }
+      
+      // Get the game scene for physics interactions
+      const gameScene = engine.getGameScene();
+      if (!gameScene) return;
+      
+      // Space key makes cube1 jump
+      if (event.key === ' ' || event.key === 'Space') {
+        event.preventDefault();
+        engine.jumpCube();
+      }
+      
+      // WASD keys apply forces to cube2
+      const force = { x: 0, y: 0, z: 0 };
+      const strength = 2.0;
+      
+      switch (event.key.toLowerCase()) {
+        case 'w':
+          force.z = -strength;
+          break;
+        case 'a':
+          force.x = -strength;
+          break;
+        case 's':
+          force.z = strength;
+          break;
+        case 'd':
+          force.x = strength;
+          break;
+        case 'q':
+          gameScene.applyImpulse('cube2', { x: 0, y: 5, z: 0 });
+          break;
+      }
+      
+      // Apply force if any direction key was pressed
+      if (force.x !== 0 || force.y !== 0 || force.z !== 0) {
+        gameScene.applyForce('cube2', force);
       }
     };
 
@@ -57,11 +99,16 @@ const GameView: React.FC = () => {
       {debugMode && (
         <div className="debug-overlay">
           <h3>Debug Mode</h3>
-          <p>FPS: 60</p>
-          <p>Objects: 1</p>
-          <p>Press Tab to exit debug mode</p>
+          <p>Controls:</p>
+          <p>Tab: Toggle debug mode</p>
+          <p>Space: Make cube1 jump</p>
+          <p>WASD: Move cube2</p>
+          <p>Q: Make cube2 jump</p>
         </div>
       )}
+      <div className="controls-hint">
+        Press Tab for debug mode
+      </div>
     </div>
   );
 };

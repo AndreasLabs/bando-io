@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { PhysicsEngine } from './PhysicsEngine';
+import { GameScene } from './GameScene';
 
 export interface GameEngineOptions {
   container: HTMLElement;
@@ -13,6 +15,11 @@ export class GameEngine {
   private debug: boolean;
   private animationId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  
+  // Physics related
+  private physicsEngine: PhysicsEngine;
+  private physicsInitialized = false;
+  private gameScene: GameScene | null = null;
 
   constructor(private options: GameEngineOptions) {
     this.debug = options.debug || false;
@@ -20,8 +27,10 @@ export class GameEngine {
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.cube = this.createCube();
+    this.physicsEngine = new PhysicsEngine();
     
     this.init();
+    this.initPhysics();
   }
 
   private init(): void {
@@ -36,7 +45,9 @@ export class GameEngine {
     this.scene.add(this.cube);
     
     // Setup camera
-    this.camera.position.z = 5;
+    this.camera.position.z = 10;
+    this.camera.position.y = 5;
+    this.camera.rotation.x = -Math.PI / 6;
     
     // Add lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -48,6 +59,57 @@ export class GameEngine {
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(container);
     this.onResize();
+  }
+
+  private async initPhysics(): Promise<void> {
+    // Initialize the physics engine
+    await this.physicsEngine.init();
+    this.physicsInitialized = true;
+    
+    // Initialize the game scene
+    this.gameScene = new GameScene(this.scene, this.physicsEngine);
+    
+    // Remove the default cube (it will be replaced with physics objects)
+    this.scene.remove(this.cube);
+    
+    // Create a demo scene
+    this.createDemoScene();
+  }
+
+  private createDemoScene(): void {
+    if (!this.gameScene) return;
+    
+    // Create ground
+    this.gameScene.createGround(
+      'ground',
+      { width: 20, height: 0.5, depth: 20 },
+      { x: 0, y: -0.25, z: 0 },
+      { color: 0x666666 }
+    );
+    
+    // Create a physics cube
+    this.gameScene.createPhysicsBox(
+      'cube1',
+      { width: 1, height: 1, depth: 1 },
+      { x: 0, y: 5, z: 0 },
+      { color: 0x00ff00 }
+    );
+    
+    // Create another physics cube
+    this.gameScene.createPhysicsBox(
+      'cube2',
+      { width: 1, height: 1, depth: 1 },
+      { x: 2, y: 7, z: 0 },
+      { color: 0x0000ff }
+    );
+    
+    // Create a static platform
+    this.gameScene.createPhysicsBox(
+      'platform',
+      { width: 5, height: 0.5, depth: 2 },
+      { x: -5, y: 2, z: 0 },
+      { color: 0xffff00, isDynamic: false }
+    );
   }
 
   private createCube(): THREE.Mesh {
@@ -69,11 +131,35 @@ export class GameEngine {
   private animate = (): void => {
     this.animationId = requestAnimationFrame(this.animate);
     
-    // Rotate cube
-    this.cube.rotation.x += 0.01;
-    this.cube.rotation.y += 0.01;
+    // Step the physics simulation if initialized
+    if (this.physicsInitialized) {
+      this.physicsEngine.step();
+    } else {
+      // If physics not yet initialized, just rotate the cube as before
+      this.cube.rotation.x += 0.01;
+      this.cube.rotation.y += 0.01;
+    }
     
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Get game scene - useful for controlling physics objects from outside
+   */
+  public getGameScene(): GameScene | null {
+    return this.gameScene;
+  }
+  
+  /**
+   * Apply impulse to a game object (example of physics interaction)
+   */
+  public jumpCube(): void {
+    if (!this.gameScene) return;
+    
+    this.gameScene.applyImpulse(
+      'cube1',
+      { x: 0, y: 5, z: 0 }
+    );
   }
 
   public start(): void {
@@ -91,13 +177,13 @@ export class GameEngine {
 
   public setDebug(debug: boolean): void {
     this.debug = debug;
-    // Add debug-specific logic here later
     
-    // For now, let's just change the cube color
-    if (this.cube) {
-      (this.cube.material as THREE.MeshStandardMaterial).color.set(
-        debug ? 0xff0000 : 0x00ff00
-      );
+    // In debug mode, you could add visualization of physics shapes, 
+    // print object positions in the debug overlay, etc.
+    
+    // For a simple demo, let's just make "cube1" jump when entering debug mode
+    if (debug && this.gameScene) {
+      this.jumpCube();
     }
   }
 
@@ -109,10 +195,23 @@ export class GameEngine {
       this.resizeObserver = null;
     }
     
-    // Dispose of resources
-    this.scene.remove(this.cube);
-    (this.cube.geometry as THREE.BufferGeometry).dispose();
-    (this.cube.material as THREE.Material).dispose();
+    // Clean up game scene
+    if (this.gameScene) {
+      this.gameScene.cleanup();
+      this.gameScene = null;
+    }
+    
+    // Clean up physics
+    if (this.physicsInitialized) {
+      this.physicsEngine.cleanup();
+    }
+    
+    // Dispose Three.js resources
+    if (this.cube.parent) {
+      this.scene.remove(this.cube);
+      (this.cube.geometry as THREE.BufferGeometry).dispose();
+      (this.cube.material as THREE.Material).dispose();
+    }
     
     this.renderer.dispose();
     
